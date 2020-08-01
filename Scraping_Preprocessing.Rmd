@@ -1,0 +1,1050 @@
+---
+title: "Scraping & Preprocessing Sony Reviews"
+output: html_notebook
+author: Olivier Mousel
+---
+
+###Collection & Processing
+The below script contains the code used to gather and preprocess the data collected for my thesis. It is not supposed to be run as a .Rmd and it is not going to render, since programs besides R are needed. Furthermore, parts of the code need to be replaced with external information as described in the accompanying comments to enable reproducibility.
+
+#Scraping Reviews and accompanying data
+
+##Amazon
+Different codes for the different national versions of Amazon are provided, the product id (ASIN) needs to be replaced as appropriate. The ASIN of all the scraped products of the collected dataset can be found in the excel file "Origin_reviews.csv".
+
+```{r Amazon US}
+#Replace id with ASIN of product of interest
+id <- c("B01MSD6RNP")
+
+
+#Load libraries
+library(pacman)
+p_load(rvest, tidyverse, RCurl, XML, xml2, 
+       dplyr, stringr, rvest, audio)
+
+
+#Function(nytnyt) for random length pauses to put between scrapes
+nytnyt <- function (periods = c(2, 4)){
+  tictoc <- runif(1, periods[1], periods[2])
+  cat(paste0(Sys.time()), "- Sleeping for", round(tictoc, 2),"seconds\n")
+  Sys.sleep(tictoc)
+}
+
+#Main scraper
+amazon_scraper_mod <- function(node, delay = 0){
+  
+  sec = 0
+  if(delay < 0) warning("delay was less than 0: set to 0")
+  if(delay > 0) sec = max(0, delay + runif(1, -1, 1))
+  
+  r.product_id <- html_nodes(node, ".a-link-normal") %>%
+    html_attr("href") %>%
+    gsub(".*ASIN=","", .)
+  
+  r.title <- html_nodes(node, ".a-color-base") %>%
+    html_text() 
+  
+  r.author <- html_nodes(node, ".a-profile-name") %>%
+    html_text() 
+  
+  r.date <- html_nodes(node, ".review-date") %>%
+    html_text() %>%
+    gsub(".*on ", "", .)
+  
+  r.text <- html_nodes(node, ".review-text-content span") %>%
+    html_text()
+  
+  r.ver.purchase <- html_nodes(node, ".review-data.a-spacing-mini") %>% 
+    html_text() %>% grepl("Verified Purchase", .) %>% 
+    as.numeric()
+  
+  r.format <- html_nodes(node, ".review-data.a-spacing-mini") %>% 
+    html_text() %>% 
+    gsub("Color: |\\|.*|Verified.*", "", .)
+  
+  r.stars <- html_nodes(node, ".review-rating") %>% 
+    html_text() %>% 
+    str_extract("\\d") %>% 
+    as.numeric() 
+  
+  df <- data.frame(
+    product_id = ifelse(length(r.product_id) == 0, NA, r.product_id),
+    title = ifelse(length(r.title) == 0, NA, r.title),
+    author = ifelse(length(r.author) == 0, NA, r.author), 
+    date = ifelse(length(r.date) == 0, NA, r.date), 
+    ver.purchase = ifelse(length(r.ver.purchase) == 0, NA, r.ver.purchase),
+    format = ifelse(length(r.format) == 0, NA, r.format),
+    stars = ifelse(length(r.stars) == 0, NA, r.stars),
+    rev.text = ifelse(length(r.title) == 0, NA, r.text),
+    stringsAsFactors = F)
+  
+  return(df)  
+}
+
+#Creating main url using ASIN
+url_page <- paste0("https://www.amazon.com/product-reviews/",id,"/ref=cm_cr_dp_d_show_all_btm?ie=UTF8&reviewerType=all_reviews") 
+
+#First let's get all urls
+#Getting max page number
+Npages <- read_html(url_page) %>%
+  html_nodes("#cm_cr-review_list > div.a-box.a-spacing-extra-large.a-color-alternate-background.review > div") %>% 
+  html_text() %>%
+  gsub("There are ", "", .) %>%
+  gsub("(reviews).*", "", .) %>%
+  gsub(" customer ", "", .) %>%
+  gsub(",", "", .) %>%
+  as.integer() 
+Npages <- floor(Npages/10) #there are always 10reviews per page
+
+# Create data.frame with product ID and max. page number
+product <- data.frame(id, Npages)
+
+# Function to create full URLs with page numbers of reviews
+get_urls <- function(x) {
+  id <- x[1]
+  Npages <- x[2]
+  num <- seq(1, Npages, 1)
+  urls <- paste0(url_page,"&pageNumber=",num,"&sortBy=recent")
+  
+  return(urls)
+}
+
+# Get all URLs for scraping
+urls <- unlist(apply(product, 1, get_urls))
+
+# Function to scrape reviews
+get_reviews <- function(url) {
+  url %>%
+    read_html() %>% 
+    html_nodes("div[id*=customer_review]") %>% 
+    lapply(., amazon_scraper_mod) %>% bind_rows()
+} 
+
+# Get reviews
+reviews <- lapply(urls, get_reviews)
+
+# Convert list to data.frame
+reviews_df <- do.call(rbind, lapply(reviews, data.frame))
+reviews_df <- reviews_df %>% distinct()
+view(reviews_df)
+
+#Save as .csv
+country.url <- substr(url_page, 20, 22)
+Title <- paste0(id,country.url,".csv")
+write.csv(reviews_df, Title)
+
+
+
+
+```
+
+```{r Amazon UK}
+#Replace id
+id <- c("B01MSD6RNP")
+
+
+#Load libraries
+library(pacman)
+p_load(rvest, tidyverse, RCurl, XML, xml2, 
+       dplyr, stringr, rvest, audio)
+
+
+#Function(nytnyt) for random length pauses to put between scrapes
+nytnyt <- function (periods = c(2, 4)){
+  tictoc <- runif(1, periods[1], periods[2])
+  cat(paste0(Sys.time()), "- Sleeping for", round(tictoc, 2),"seconds\n")
+  Sys.sleep(tictoc)
+}
+
+
+#Main scraper
+amazon_scraper_mod <- function(node, delay = 0){
+  
+  sec = 0
+  if(delay < 0) warning("delay was less than 0: set to 0")
+  if(delay > 0) sec = max(0, delay + runif(1, -1, 1))
+  
+  r.product_id <- html_nodes(node, ".a-link-normal") %>%
+    html_attr("href") %>%
+    gsub(".*ASIN=","", .)
+  
+  r.title <- html_nodes(node, ".a-color-base") %>%
+    html_text() 
+ 
+  r.author <- html_nodes(node, ".a-profile-name") %>%
+    html_text() 
+  
+  r.date <- html_nodes(node, ".review-date") %>%
+    html_text() %>%
+    gsub(".*on ", "", .)
+  
+  r.text <- html_nodes(node, ".review-text-content span") %>%
+    html_text()
+  
+  r.ver.purchase <- html_nodes(node, ".review-data.a-spacing-mini") %>% 
+    html_text() %>% grepl("Verified Purchase", .) %>% 
+    as.numeric()
+  
+  r.format <- html_nodes(node, ".review-data.a-spacing-mini") %>% 
+    html_text() %>% 
+    gsub("Color: |\\|.*|Verified.*", "", .)
+  
+  r.stars <- html_nodes(node, ".review-rating") %>% 
+    html_text() %>% 
+    str_extract("\\d") %>% 
+    as.numeric() 
+  
+  df <- data.frame(
+    product_id = ifelse(length(r.product_id) == 0, NA, r.product_id),
+    title = ifelse(length(r.title) == 0, NA, r.title),
+    author = ifelse(length(r.author) == 0, NA, r.author), 
+    date = ifelse(length(r.date) == 0, NA, r.date), 
+    ver.purchase = ifelse(length(r.ver.purchase) == 0, NA, r.ver.purchase),
+    format = ifelse(length(r.format) == 0, NA, r.format),
+    stars = ifelse(length(r.stars) == 0, NA, r.stars),
+    rev.text = ifelse(length(r.title) == 0, NA, r.text),
+    stringsAsFactors = F)
+  
+  return(df)  
+}
+
+#Creating main url using ASIN
+url_page <- paste0("https://www.amazon.co.uk/product-reviews/",id,"/ref=cm_cr_arp_d_viewopt_srt?ie=UTF8&reviewerType=all_reviews") 
+
+#First let's get all urls
+#Getting max page number
+Npages <- read_html(url_page) %>%
+  html_nodes("#cm_cr-review_list > div.a-box.a-spacing-extra-large.a-color-alternate-background.review > div") %>% 
+  html_text() %>%
+  gsub("There are ", "", .) %>%
+  gsub("(reviews).*", "", .) %>%
+  gsub(" customer ", "", .) %>%
+  gsub(",", "", .) %>%
+  as.integer() 
+Npages <- floor(Npages/10) #there are always 10reviews per page
+
+# Create data.frame with product ID and max. page number
+product <- data.frame(id, Npages)
+
+# Function to create full URLs with page numbers of reviews
+get_urls <- function(x) {
+  id <- x[1]
+  Npages <- x[2]
+  num <- seq(1, Npages, 1)
+  urls <- paste0(url_page,"&pageNumber=",num,"&sortBy=recent")
+  
+  return(urls)
+}
+
+# Get all URLs for scraping
+urls <- unlist(apply(product, 1, get_urls))
+
+# Function to scrape reviews
+get_reviews <- function(url) {
+  url %>%
+    read_html() %>% 
+    html_nodes("div[id*=customer_review]") %>% 
+    lapply(., amazon_scraper_mod) %>% bind_rows()
+  } 
+
+# Get reviews
+reviews <- lapply(urls, get_reviews)
+
+# Convert list to data.frame
+reviews_df <- do.call(rbind, lapply(reviews, data.frame))
+reviews_df <- reviews_df %>% distinct()
+view(reviews_df)
+
+#Save as .csv
+country.url <- substr(url_page, 20, 24)
+country.url <- gsub("\\.","_", country.url)
+Title <- paste0(id,country.url,".csv")
+write.csv(reviews_df, Title)
+
+#Clean up
+rm(list = ls())
+
+```
+
+```{r Amazon CA}
+#Replace id/ASIN
+id <- c("B07MTWVN3M")
+
+#Load libraries
+library(pacman)
+p_load(rvest, tidyverse, RCurl, XML, xml2, 
+       dplyr, stringr, rvest, audio)
+
+#Function(nytnyt) for random length pauses to put between scrapes
+nytnyt <- function (periods = c(4, 7)){
+  tictoc <- runif(1, periods[1], periods[2])
+  cat(paste0(Sys.time()), "- Sleeping for", round(tictoc, 2),"seconds\n")
+  Sys.sleep(tictoc)
+}
+
+
+#Main scraper
+amazon_scraper_mod <- function(node, delay = 0){
+  
+  sec = 0
+  if(delay < 0) warning("delay was less than 0: set to 0")
+  if(delay > 0) sec = max(0, delay + runif(1, -1, 1))
+  
+  r.product_id <- html_nodes(node, ".a-link-normal") %>%
+    html_attr("href") %>%
+    gsub(".*ASIN=","", .)
+  
+  r.title <- html_nodes(node, ".a-color-base") %>%
+    html_text() 
+ 
+  r.author <- html_nodes(node, ".a-profile-name") %>%
+    html_text() 
+  
+  r.date <- html_nodes(node, ".review-date") %>%
+    html_text() %>%
+    gsub(".*on ", "", .)
+  
+   r.text <- html_nodes(node, ".review-text-content span") %>%
+    html_text()
+  
+  r.ver.purchase <- html_nodes(node, ".review-data.a-spacing-mini") %>% 
+    html_text() %>% grepl("Verified Purchase", .) %>% 
+    as.numeric()
+  
+  r.format <- html_nodes(node, ".review-data.a-spacing-mini") %>% 
+    html_text() %>% 
+    gsub("Color: |\\|.*|Verified.*", "", .)
+  
+  r.stars <- html_nodes(node, ".review-rating") %>% 
+    html_text() %>% 
+    str_extract("\\d") %>% 
+    as.numeric() 
+  
+  df <- data.frame(
+    product_id = ifelse(length(r.product_id) == 0, NA, r.product_id),
+    title = ifelse(length(r.title) == 0, NA, r.title),
+    author = ifelse(length(r.author) == 0, NA, r.author), 
+    date = ifelse(length(r.date) == 0, NA, r.date), 
+    ver.purchase = ifelse(length(r.ver.purchase) == 0, NA, r.ver.purchase),
+    format = ifelse(length(r.format) == 0, NA, r.format),
+    stars = ifelse(length(r.stars) == 0, NA, r.stars),
+    rev.text = ifelse(length(r.title) == 0, NA, r.text),
+    stringsAsFactors = F)
+  
+  return(df)  
+}
+
+#First let's get all urls
+#Creating urls using ASIN
+url_page <- paste0("https://www.amazon.ca/product-reviews/",id,"/ref=cm_cr_dp_d_show_all_btm?ie=UTF8&reviewerType=all_reviews") 
+
+#Getting max page number
+Npages <- read_html(url_page) %>%
+  html_nodes("#cm_cr-review_list > div.a-box.a-spacing-extra-large.a-color-alternate-background.review > div") %>% 
+  html_text() %>%
+  gsub("There are ", "", .) %>%
+  gsub("(reviews).*", "", .) %>%
+  gsub(" customer ", "", .) %>%
+  gsub(",", "", .) %>%
+  as.integer() 
+#Npages <- floor(Npages/10) #there are always 10reviews per page
+
+# Create data.frame with product ID and max. page number
+product <- data.frame(id, Npages)
+
+# Function to create full URLs with page numbers of reviews
+get_urls <- function(x) {
+  id <- x[1]
+  Npages <- x[2]
+  num <- seq(1, Npages, 1)
+  urls <- paste0(url_page,"&pageNumber=",num,"&sortBy=recent")
+  
+  return(urls)
+}
+
+# Get all URLs for scraping
+urls <- unlist(apply(product, 1, get_urls))
+
+# Function to scrape reviews
+get_reviews <- function(url) {
+  url %>%
+    read_html() %>% 
+    html_nodes("div[id*=customer_review]") %>% 
+    lapply(., amazon_scraper_mod) %>% bind_rows()
+  } 
+
+# Get reviews
+reviews <- lapply(urls, get_reviews)
+
+# Convert list to data.frame
+reviews_df <- do.call(rbind, lapply(reviews, data.frame))
+reviews_df <- reviews_df %>% distinct()
+view(reviews_df)
+
+#Save as .csv
+country.url <- substr(url_page, 20, 21)
+country.url <- gsub("\\.","_", country.url)
+Title <- paste0(id,country.url,".csv")
+write.csv(reviews_df, Title)
+
+```
+
+```{r Amazon IN}
+#Replace id
+id <- c("B00FO6APKU")
+
+
+#Load libraries
+library(pacman)
+p_load(rvest, tidyverse, RCurl, XML, xml2, 
+       dplyr, stringr, rvest, audio)
+
+
+#Function(nytnyt) for random length pauses to put between scrapes
+nytnyt <- function (periods = c(2, 4)){
+  tictoc <- runif(1, periods[1], periods[2])
+  cat(paste0(Sys.time()), "- Sleeping for", round(tictoc, 2),"seconds\n")
+  Sys.sleep(tictoc)
+}
+
+
+#Main scraper
+amazon_scraper_mod <- function(node, delay = 0){
+  
+  sec = 0
+  if(delay < 0) warning("delay was less than 0: set to 0")
+  if(delay > 0) sec = max(0, delay + runif(1, -1, 1))
+  
+  r.product_id <- html_nodes(node, ".a-link-normal") %>%
+    html_attr("href") %>%
+    gsub(".*ASIN=","", .)
+  
+  r.title <- html_nodes(node, ".a-color-base") %>%
+    html_text() 
+  
+  r.author <- html_nodes(node, ".a-profile-name") %>%
+    html_text() 
+  
+  r.date <- html_nodes(node, ".review-date") %>%
+    html_text() %>%
+    gsub(".*on ", "", .)
+  
+  r.text <- html_nodes(node, ".review-text-content span") %>%
+    html_text()
+  
+  r.ver.purchase <- html_nodes(node, ".review-data.a-spacing-mini") %>% 
+    html_text() %>% grepl("Verified Purchase", .) %>% 
+    as.numeric()
+  
+  r.format <- html_nodes(node, ".review-data.a-spacing-mini") %>% 
+    html_text() %>% 
+    gsub("Color: |\\|.*|Verified.*", "", .)
+  
+  r.stars <- html_nodes(node, ".review-rating") %>% 
+    html_text() %>% 
+    str_extract("\\d") %>% 
+    as.numeric() 
+  
+  df <- data.frame(
+    product_id = ifelse(length(r.product_id) == 0, NA, r.product_id),
+    title = ifelse(length(r.title) == 0, NA, r.title),
+    author = ifelse(length(r.author) == 0, NA, r.author), 
+    date = ifelse(length(r.date) == 0, NA, r.date), 
+    ver.purchase = ifelse(length(r.ver.purchase) == 0, NA, r.ver.purchase),
+    format = ifelse(length(r.format) == 0, NA, r.format),
+    stars = ifelse(length(r.stars) == 0, NA, r.stars),
+    rev.text = ifelse(length(r.title) == 0, NA, r.text),
+    stringsAsFactors = F)
+  
+  return(df)  
+}
+
+#Creating main url using ASIN
+url_page <- paste0("https://www.amazon.in/product-reviews/",id,"/ref=cm_cr_dp_d_show_all_btm?ie=UTF8&reviewerType=all_reviews")
+
+#First let's get all urls
+#Getting max page number
+Npages <- read_html(url_page) %>%
+  html_nodes("#cm_cr-review_list > div.a-box.a-spacing-extra-large.a-color-alternate-background.review > div") %>% 
+  html_text() %>%
+  gsub("There are ", "", .) %>%
+  gsub("(reviews).*", "", .) %>%
+  gsub(" customer ", "", .) %>%
+  gsub(",", "", .) %>%
+  as.integer() 
+#Npages <- floor(Npages/10) #there are always 10reviews per page
+
+# Create data.frame with product ID and max. page number
+product <- data.frame(id, Npages)
+
+# Function to create full URLs with page numbers of reviews
+get_urls <- function(x) {
+  id <- x[1]
+  Npages <- x[2]
+  num <- seq(1, Npages, 1)
+  urls <- paste0(url_page,"&pageNumber=",num,"&sortBy=recent")
+  
+  return(urls)
+}
+
+# Get all URLs for scraping
+urls <- unlist(apply(product, 1, get_urls))
+
+# Function to scrape reviews
+get_reviews <- function(url) {
+  url %>%
+    read_html() %>% 
+    html_nodes("div[id*=customer_review]") %>% 
+    lapply(., amazon_scraper_mod) %>% bind_rows()
+} 
+
+# Get reviews
+reviews <- lapply(urls, get_reviews)
+
+# Convert list to data.frame
+reviews_df <- do.call(rbind, lapply(reviews, data.frame))
+reviews_df <- reviews_df %>% distinct()
+view(reviews_df)
+
+#Save as .csv
+country.url <- substr(url_page, 20, 21)
+country.url <- gsub("\\.","_", country.url)
+Title <- paste0(id,country.url,".csv")
+write.csv(reviews_df, Title)
+
+
+```
+
+The next chunk is about colecting the ranking information of reviewers from the ranking published by AMAZon on the top 10`000 reviewers off a country. The starting url of the national Amazon sites needs to be adapted depending on the site, as described. 
+
+```{r Top 10`000 Reviewers}
+#Necessary Packages
+library(rvest)
+library(tidyverse)
+library(rlang)
+
+#Function(nytnyt) for random length pauses to put between scrapes
+nytnyt <- function (periods = c(4, 7)){
+  tictoc <- runif(1, periods[1], periods[2])
+  cat(paste0(Sys.time()), "- Sleeping for", round(tictoc, 2),"seconds\n")
+  Sys.sleep(tictoc)
+}
+
+#Creating urls
+#Below url needs to be repaced with the respective starting url of the national amazon website
+url_page <- paste0("https://www.amazon.ca/hz/leaderboard/top-reviewers/ref=cm_cr_tr_link_") 
+
+list_pages <- str_c(url_page,801:1000,"?page=",801:1000)
+
+#Functions to get data
+get_user <- function(html){
+  html %>%
+    html_nodes(".a-link-normal:nth-child(1)") %>%
+    html_text() %>%
+    unlist() %>%
+    str_trim()
+}
+
+get_rank<- function(html){
+  html %>%
+    html_nodes(".a-size-small tr:nth-child(5) td:nth-child(1) , .a-size-small tr:nth-child(4) td:nth-child(1) , .a-size-small tr:nth-child(3) td:nth-child(1) , .a-size-small tr:nth-child(6) td:nth-child(1) , .a-size-small tr:nth-child(7) td:nth-child(1) , .a-size-small tr:nth-child(8) td:nth-child(1) , .a-size-small tr:nth-child(9) td:nth-child(1) , .a-size-small tr:nth-child(10) td:nth-child(1) , .a-size-small tr:nth-child(11) td:nth-child(1) , tr:nth-child(12) td:nth-child(1)") %>%
+    html_text() %>%
+    unlist() %>%
+    gsub("# ","", .)
+}
+
+#combining functions
+get_data_table <- function(html){
+  
+  # Extract info
+  user <- get_user(html)
+  rank <- get_rank(html)
+  
+  # Combine into a tibble
+  combined_data <- tibble(user = user,
+                          rank = rank) 
+}
+
+#Extract html from url
+get_data_from_url <- function(url){
+  html <- read_html(url)
+  get_data_table(html)
+}
+
+#Apply to all urls
+d <- list_pages %>% 
+  # Apply to all URLs
+  map(get_data_from_url) %>%  
+  # Combine the tibbles into one tibble
+  bind_rows() 
+
+#merge a,b,c & d to get all reviews
+e <- bind_rows(a, b, c, d)
+#Save as .csv
+country.url <- substr(url_page, 20, 21)
+Title <- paste0(country.url,".csv")
+Title <- "CA_rank"
+write.csv(e, Title)
+    
+```
+
+##Sony
+Next the code to scrape reviews and accompanying data from the national versions of Sonys national websites is provided. This part requires additional software, since the content of Sonys website is interactively generated (probably using Java). A human user is hence imitated, which results in much longer waiting times than for the previous code. A human user is imitated using the package Rselenium, in order to make the operation much more stable a virtual machine is created using the Docker desktop application (www.docker.com). The code worked rather flawlessly at the time of writing, considering that websites are constantly changing no guarantee can be given that it is still going to work at another moment in time. For debugging the viewer TigerVNC (www.tigervnc.org) was and can be used. A lecture uploaded by the R Consortium "The ultimate online collection toolbox: Combining RSelenium and Rvest" was very helpful in this and the previous part. (https://www.youtube.com/watch?v=JcIeWiljQG4). To get the required urls, the national Sony website and product indicated in the "Origin_reviews.csv" or whatever product is of interest needs to be looked up through a browser and inserted into the below code.
+
+```{r Scraping Sony Websites}
+#Input VNC viewer
+#192.168.99.100::5901
+
+#We work on a national product webpage basis, hence
+#url needs to be adapted depedning on national version of site
+url <- "https://www.sony.co.in/electronics/cyber-shot-compact-cameras/dsc-hx400-hx400v/reviews-ratings"
+
+#Loading necessary libraries
+#library(httr)
+library(RSelenium)
+library(tidyverse)
+library(rvest)
+
+#Function(nytnyt) for random length pauses to put between scrapes
+nytnyt <- function (periods = c(2, 4)){
+  tictoc <- runif(1, periods[1], periods[2])
+  cat(paste0(Sys.time()), "- Sleeping for", round(tictoc, 2),"seconds\n")
+  Sys.sleep(tictoc)
+}
+
+#Function to update text within show more button
+update_lb_text <- function(pg){
+    pg %>% html_nodes(xpath= "//button[@class='btn btn-alt-special btn-alt-plus loadmore' and not(contains(@style,'display: none;'))]") %>%
+    html_text()}
+
+#Specify chrome extensions
+cprof <- list(chromeOptions = 
+                list(extensions = 
+                       list(base64enc::base64encode("/Users/Gebruiker/Desktop/uni/Webscrape/extension_3_1_0_0.crx",
+                                                    "/Users/Gebruiker/Desktop/uni/Webscrape/extension_3_0_13_0.crx"))
+                ))
+
+#Connecting to docker remote driver
+remDr <- remoteDriver(remoteServerAddr = "192.168.99.100",
+                      port = 4445L,
+                      extraCapabilities=cprof,
+                      browser = "chrome")
+
+remDr$open()
+nytnyt()
+nytnyt()
+#Go to website
+remDr$navigate(url)
+nytnyt() #time to load!
+nytnyt()
+#pg & lb_text need to be loaded before getting data
+pg <- remDr$getPageSource() %>% .[[1]] %>%
+  read_html()
+lb_text <- update_lb_text(pg)
+
+#Geting info not related to specific reviews
+#Saving it as title of output df for later
+Product <- pg %>%
+           html_nodes('.filtered:nth-child(1) .product-id') %>%
+           html_text()
+AvRating_NumberReviews <- pg %>%
+            html_nodes('.reviews-label p') %>%
+            html_text()
+AvRating_NumberReviews <- gsub("customer reviews","" ,AvRating_NumberReviews)
+country.url <- substr(url, 17, 23) 
+country.url <- gsub("\\.","_", country.url)
+
+#Title = used again at end of code when saving data
+#Hence special characters are removed to avoid issues
+Title <- paste(Product, AvRating_NumberReviews, country.url, ".csv", sep="")
+Title <- gsub("/","", Title)
+
+
+#Scroll down a bit to see reviews\filter button
+element <- remDr$findElement("css", "body")
+element$sendKeysToElement(list(key = "page_down"))
+nytnyt()
+
+
+#Main Function to get data
+collect_pg <- function(remDr){
+  pg <- remDr$getPageSource() %>% .[[1]] %>%
+    read_html()
+  Ratings <- pg %>%
+    html_nodes("#ReviewsListings .product-rating")%>%
+    html_attr("data-stars") %>%
+    as.numeric
+  Headings <- pg %>%
+    html_nodes('#ReviewsListings .t5') %>%
+    html_text() 
+  ReviewText <- pg %>%
+    html_nodes('#ReviewsListings .moreless-paragraph') %>%
+    html_text() 
+    ReviewText <- gsub("Show more", "", ReviewText)
+    ReviewText <- gsub("\\...", "", ReviewText)
+  UserInfo <- pg %>%
+    html_nodes('#ReviewsListings .review-info') %>%
+    html_text()
+  Reviews <- data.frame(Ratings = Ratings, 
+                            Headings = Headings, 
+                            ReviewText = ReviewText, 
+                            UserInfo = UserInfo, stringsAsFactors = F)
+}
+
+#Hit that load more button until it disappears
+while(length(lb_text) !="0"){
+  #update loadmorebutton text
+  lb_text <- update_lb_text(pg)
+  #check again whether loadmorebutton is still there
+  loadmorebutton <- remDr$findElements('css selector', ".loadmore")
+  loadmorebutton[[1]]$clickElement()
+  nytnyt()
+  nytnyt()
+  pg <- remDr$getPageSource() %>% .[[1]] %>%
+    read_html()
+  }
+print(ReviewText)
+#Get most recent reviews
+Recent.Reviews <- collect_pg(remDr)
+
+#####################################################################
+################ Most Recent Done #####################################
+
+
+#Chosing another sorting mechanism/ranking:
+#First scroll to button
+element <- remDr$findElement("css", "body")
+nytnyt()
+element$sendKeysToElement(list(key = "home"))
+element$sendKeysToElement(list(key = "page_down"))
+#select and click button
+webElem <- remDr$findElement('xpath', "//*/div/div/div/div/span/button")
+remDr$mouseMoveToLocation(webElement = webElem)
+webElem$clickElement()
+Sys.sleep(3)
+#Change filter option from "Most recent" -> "High to Low"
+Filter_option <- remDr$findElement('xpath', '//*[@id="sortByMenuItems"]/li[2]')  
+Filter_option$clickElement()
+nytnyt()
+nytnyt()
+ 
+#pg & lb_text need to be loaded before loop
+pg <- remDr$getPageSource() %>% .[[1]] %>%
+  read_html()
+lb_text <- update_lb_text(pg)
+
+#Hit that load more button until it disappears
+while(length(lb_text) !="0"){
+  #update loadmorebutton text
+  lb_text <- update_lb_text(pg)
+  #check again whether loadmorebutton is still there
+  loadmorebutton <- remDr$findElements('css selector', ".loadmore")
+  loadmorebutton[[1]]$clickElement()
+  nytnyt()
+  nytnyt()
+  pg <- remDr$getPageSource() %>% .[[1]] %>%
+    read_html()
+}
+
+#Get high to low reviews
+HtL.Reviews<- collect_pg(remDr)
+
+#####################################################################
+################ High to Low Done #####################################
+
+#Chosing another sorting mechanism/ranking:
+#First scroll to button
+element <- remDr$findElement("css", "body")
+element$sendKeysToElement(list(key = "home"))
+nytnyt()
+element$sendKeysToElement(list(key = "page_down"))
+#select and click button
+webElem <- remDr$findElement('xpath', "//*/div/div/div/div/span/button")
+remDr$mouseMoveToLocation(webElement = webElem)
+webElem$clickElement()
+Sys.sleep(3)
+#Change filter option from "High to Low" -> "Low to High"
+Filter_option <- remDr$findElement('xpath', '//*[@id="sortByMenuItems"]/li[3]')  
+Filter_option$clickElement()
+nytnyt()
+nytnyt()
+nytnyt()
+#pg & lb_text need to be loaded before loop
+pg <- remDr$getPageSource() %>% .[[1]] %>%
+  read_html()
+lb_text <- update_lb_text(pg)
+
+#Hit that load more button until it disappears
+while(length(lb_text) !="0"){
+  #update loadmorebutton text
+  lb_text <- update_lb_text(pg)
+  #check again whether loadmorebutton is still there
+  loadmorebutton <- remDr$findElements('css selector', ".loadmore")
+  loadmorebutton[[1]]$clickElement()
+  nytnyt()
+  nytnyt()
+  pg <- remDr$getPageSource() %>% .[[1]] %>%
+    read_html()
+}
+
+LtH.Reviews <- collect_pg(remDr)
+#####################################################################
+################ Low to High Done #####################################
+
+#Chosing another sorting mechanism/ranking:
+#First scroll to button
+element <- remDr$findElement("css", "body")
+element$sendKeysToElement(list(key = "home"))
+nytnyt()
+element$sendKeysToElement(list(key = "page_down"))
+#select and click button
+webElem <- remDr$findElement('xpath', "//*/div/div/div/div/span/button")
+remDr$mouseMoveToLocation(webElement = webElem)
+webElem$clickElement()
+Sys.sleep(3)
+#Change filter option from "Low to High" -> "Most helpful"
+Filter_option <- remDr$findElement('xpath', '//*[@id="sortByMenuItems"]/li[4]')  
+Filter_option$clickElement()
+nytnyt()
+nytnyt()
+
+#pg & lb_text need to be loaded before loop
+pg <- remDr$getPageSource() %>% .[[1]] %>%
+  read_html()
+lb_text <- update_lb_text(pg)
+
+#Hit that load more button until it disappears
+while(length(lb_text) !="0"){
+  #update loadmorebutton text
+  lb_text <- update_lb_text(pg)
+  #check again whether loadmorebutton is still there
+  loadmorebutton <- remDr$findElements('css selector', ".loadmore")
+  loadmorebutton[[1]]$clickElement()
+  nytnyt()
+  nytnyt()
+  pg <- remDr$getPageSource() %>% .[[1]] %>%
+    read_html()
+}
+
+Helpful.Reviews <- collect_pg(remDr)
+
+#####################################################################
+################ Most Helpful done ####################################
+remDr$close()
+#Creating final dataset for this url
+#Add column for default country & remove duplicates
+#output file saved under title containing
+#av star rating and total number of reviews it is based upon
+Final.Reviews <- rbind(Recent.Reviews,
+                      HtL.Reviews,
+                      LtH.Reviews,
+                      Helpful.Reviews)
+Final.Reviews <- Final.Reviews %>% distinct()
+Nrows <- nrow(Final.Reviews)
+
+Default.Country <- rep(c(country.url), times = Nrows)
+Final.Reviews <- cbind(Final.Reviews, Default.Country)
+write.csv(Final.Reviews, Title)
+
+```
+
+#Preprocessing
+The next chunk combines the individual, previously collected, product csv files besides other preprocessing operations and adding relevant columns such as the number of words, etc.. 
+
+```{r Preprocessing}
+#Combining csv files
+#put them in folder in documents (is working directory)
+library(tidyverse)
+library(plyr)
+library(readr)
+library(textcat)
+
+if(Sys.getenv("JAVA_HOME")!=""){
+  Sys.setenv(JAVA_HOME="")
+}
+require(rJava)
+library(rJava)
+library(qdap)
+mydir = "Sony_website"
+myfiles = list.files(path=mydir, pattern="*.csv", full.names=TRUE)
+dat_csv = ldply(myfiles, read_csv)
+  
+#Deleting doubles& asian character reviews 
+#dat_csv <- dat_csv %>% distinct(ReviewText, .keep_all = TRUE)
+dat_csv <- dat_csv[!grepl("<U+", dat_csv$ReviewText),]
+
+#Creating columns duplicates of Userinfo
+n = 2 #replicate 3 new columns
+data = cbind(dat_csv, replicate(n,dat_csv$UserInfo)) 
+system("java -version")
+#Extracting date into "date" column
+data$'1' <- gsub(" January ", "-01-", data$`1`)
+data$'1' <- gsub(" February ", "-02-", data$`1`)
+data$'1' <- gsub(" March ", "-03-", data$`1`)
+data$'1' <- gsub(" April ", "-04-", data$`1`)
+data$'1' <- gsub(" May ", "-05-", data$`1`)
+data$'1' <- gsub(" June ", "-06-", data$`1`)
+data$'1' <- gsub(" July ", "-07-", data$`1`)
+data$'1' <- gsub(" August ", "-08-", data$`1`)
+data$'1' <- gsub(" September ", "-09-", data$`1`)
+data$'1' <- gsub(" October ", "-10-", data$`1`)
+data$'1' <- gsub(" November ", "-11-", data$`1`)
+data$'1' <- gsub(" December ", "-12-", data$`1`)
+
+data$`1` <- str_extract_all(data$`1`,"(\\d{2}-\\d{2}-\\d{4})" )
+names(data)[8] <- "date"
+view(data$date)
+
+#Default Country
+data$Default.Country <- str_replace_all(data$Default.Country, "[[:punct:]]","")
+data$Default.Country <- gsub("^ +| +$","", data$Default.Country)
+#Replace country codes
+data$Default.Country <- gsub("comau", "Australia", data$Default.Country)
+data$Default.Country <- gsub("caen", "Canada", data$Default.Country)
+data$Default.Country <- gsub("comhk", "HongKong", data$Default.Country)
+data$Default.Country <- gsub("coin", "India", data$Default.Country)
+data$Default.Country <- gsub("coid", "Indonesia", data$Default.Country)
+data$Default.Country <- gsub("comke", "Kenya", data$Default.Country)
+data$Default.Country <- gsub("commy", "Malaysia", data$Default.Country)
+data$Default.Country <- gsub("comsg", "Singapore", data$Default.Country)
+data$Default.Country <- gsub("comza", "SouthAfrica", data$Default.Country)
+data$Default.Country <- gsub("coth", "Thailand", data$Default.Country)
+data$Default.Country <- gsub("couk", "UnitedKingdom", data$Default.Country)
+data$Default.Country <- gsub("comet", "USA", data$Default.Country)
+data$Default.Country <- gsub("comhk", "HongKong", data$Default.Country)
+
+#Extracting Country  from UserInfo duplicates
+data$`2` <- gsub("^.*by","", data$`2`)
+#select content between parantheses
+data$`2` <- str_extract_all(data$`2`,"\\s*\\([^\\)]+\\)")
+#some entries have multiple parantheses chose last one with country
+data$`2`<- gsub(".*[(]","", data$`2`)
+data$`2`<- gsub("[)]","", data$`2`)
+data$`2`<- str_replace_all(data$`2`, "[[:punct:]]", "")
+data$`2` <- gsub("^ +| +$","", data$`2`)
+names(data)[9] <- "country"
+
+#Replacing missing values in "country" with default country
+data$country <- gsub("0","", data$country)
+data$country <- gsub(" +","", data$country)
+data$country <- sapply(data$country, function(f){is.na(f)<-which(f == '');f}) 
+data$country[is.na(data$country)] <- data$Default.Country[is.na(data$country)]
+
+# Selecting only the reviews in english
+#data$language <- as.factor(textcat(data$ReviewText))
+#data <- data[language == "english"]
+
+
+#exporting to csv
+data$date <- as.character(data$date)
+Title <- "Quick-check.csv"
+write.csv(data, Title)
+
+#Identifying verified purchasers, Replace with appropriate file
+d <- read.csv(file = 'C:/Users/Gebruiker/Desktop/Data/Sony Website.csv', 
+              header=T)
+
+d <- dat_csv
+#Creating columns duplicates of Userinfo
+n = 2 #replicate 2 new columns
+data = cbind(d, replicate(n,d$UserInfo)) 
+
+#extracting verified Purchases
+data$`1` <- gsub(".*)","", data$`1`)
+data$`1` <- gsub(".*)","", data$`1`)
+data$`1` <- gsub(".*>","", data$`1`)
+
+#extracting author
+data$`2` <- gsub(".*by","", data$`2`)
+data$`2` <- gsub("\\(.*","", data$`2`)
+view(data$`2`)
+
+#write csv
+Title <- "SonyW.csv.csv"
+write.csv(data, Title)
+
+#Combining amazon csvs
+mydir = "Amazond"
+myfiles = list.files(path=mydir, pattern="*.csv", full.names=TRUE)
+dat_csv = ldply(myfiles, read_csv)
+
+#Deleting doubles, asian character reviews 
+dat_csv <- dat_csv %>%
+  distinct(rev.text, date, .keep_all = TRUE)
+
+#Creating column duplicates 
+n = 2
+data = cbind(dat_csv, replicate(n,dat_csv$author)) 
+
+data$`1` <- trimws(data$`1`, which = c("both"))
+data$title <- trimws(data$title, which = c("both"))
+data$stars <- trimws(data$stars, which = c("both"))
+data$rev.text <- gsub("^ +| +$","", data$rev.text) 
+data$title <- gsub("^ +| +$","", data$title) 
+
+
+#identifying incentivised reviews
+#first duplicating format column
+n = 2
+data = cbind(data, replicate(n,data$format)) 
+data$`format` <- gsub(".*Vine","", data$`format`)
+
+###########
+#Getting word count of reviews
+data <-
+  read.csv(file = "C:/Users/Gebruiker/Desktop/uni/Data/Amazon2.csv",
+           header = TRUE, strip.white = T)
+
+data$text <- 
+  paste(data$title, data$rev.text,sep=" . ")
+
+# Replace a new line with a space
+data$text <- gsub("\\n"," ",data$text)
+
+#counting words
+data$words <- 
+  word_count(
+  data$text,
+  byrow = TRUE,
+  missing = NA,
+  digit.remove = TRUE,
+  names = FALSE
+)
+```
+
+The next chunck should be run after the previous one. it shows how the grammar was corrected and the reviews from both platforms are combined into one dataframe. Note that the majority of spellcheching took place in excel and not in R.
+
+```{r grammar & creating single file}
+library(caret)
+#The below lines indicating the ranges which were corrected is not how I selected the reviews, I selected a random sample using the "caret" package
+#Correcting grammar
+ind_train <- createDataPartition(y = data$Platform, 
+                                 p = 0.2)
+check_that <- titanic %>% slice(ind_train$Resample1)
+
+a <- check_spelling_interactive(check_that$text[1:20])
+preprocessed(m)
+
+fixit <- attributes(a)$correct
+data$text1 <- fixit(data$text1)
+
+title <- "Amazon3"
+write.csv(data, title)
+
+mraja1spl$dialogue
+attributes(a)
+
+#Get combined df
+data <-
+  read.csv(file = "C:/Users/Gebruiker/Desktop/Now/All.csv",
+           header = TRUE, strip.white = T)
+#transform into lowercase
+data$text1 <- tolower(data$text1)
+library(sentimentr)
+
+data$sent <- sentiment_by(data$text1)
+
+title <- "All"
+write.csv(data, title)
+  
+```
